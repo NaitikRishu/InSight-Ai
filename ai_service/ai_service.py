@@ -66,14 +66,31 @@ Recent Videos (with view counts):
         
         prompt += """
 
-Based on this data, provide exactly 10 numbered recommendations covering:
-1. Content themes and topics that are working
-2. Title optimization strategies
-3. Upload frequency and timing suggestions
-4. Engagement tactics based on successful videos
-5. Growth opportunities and content gaps
+Based on this data, provide exactly 5 numbered recommendations, each in a distinct category:
 
-Format your response as a numbered list (1-5) with clear, actionable advice for each point."""
+1. **CONTENT THEMES** - Content themes and topics that are working
+2. **TITLE OPTIMIZATION** - Title optimization strategies
+3. **UPLOAD STRATEGY** - Upload frequency and timing suggestions
+4. **ENGAGEMENT TACTICS** - Engagement tactics based on successful videos
+5. **GROWTH OPPORTUNITIES** - Growth opportunities and content gaps
+
+Format your response as:
+**CONTENT THEMES**
+[Your recommendations here]
+
+**TITLE OPTIMIZATION**
+[Your recommendations here]
+
+**UPLOAD STRATEGY**
+[Your recommendations here]
+
+**ENGAGEMENT TACTICS**
+[Your recommendations here]
+
+**GROWTH OPPORTUNITIES**
+[Your recommendations here]
+
+Provide 2-3 specific, actionable bullet points for each category."""
 
         # Call Hugging Face API using DeepSeek-V3 (faster with Novita provider)
         try:

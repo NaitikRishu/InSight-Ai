@@ -1,8 +1,75 @@
 import React, { useState } from 'react';
-import { Youtube, Sparkles, TrendingUp, Users, Eye, Loader2, AlertCircle } from 'lucide-react';
+import { Youtube, Sparkles, TrendingUp, Users, Eye, Loader2, AlertCircle, Palette, Edit3, Calendar, MessageCircle, Target } from 'lucide-react';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5003';
+
+function parseSuggestions(suggestions) {
+  const categories = [
+    {
+      key: 'CONTENT THEMES',
+      title: 'Content Themes',
+      icon: Palette,
+      color: 'from-green-500/20 to-emerald-500/20',
+      borderColor: 'border-green-500/30',
+      iconColor: 'text-green-400'
+    },
+    {
+      key: 'TITLE OPTIMIZATION',
+      title: 'Title Optimization',
+      icon: Edit3,
+      color: 'from-blue-500/20 to-cyan-500/20',
+      borderColor: 'border-blue-500/30',
+      iconColor: 'text-blue-400'
+    },
+    {
+      key: 'UPLOAD STRATEGY',
+      title: 'Upload Strategy',
+      icon: Calendar,
+      color: 'from-purple-500/20 to-pink-500/20',
+      borderColor: 'border-purple-500/30',
+      iconColor: 'text-purple-400'
+    },
+    {
+      key: 'ENGAGEMENT TACTICS',
+      title: 'Engagement Tactics',
+      icon: MessageCircle,
+      color: 'from-orange-500/20 to-red-500/20',
+      borderColor: 'border-orange-500/30',
+      iconColor: 'text-orange-400'
+    },
+    {
+      key: 'GROWTH OPPORTUNITIES',
+      title: 'Growth Opportunities',
+      icon: Target,
+      color: 'from-indigo-500/20 to-purple-500/20',
+      borderColor: 'border-indigo-500/30',
+      iconColor: 'text-indigo-400'
+    }
+  ];
+
+  const sections = suggestions.split(/\*\*(.*?)\*\*/).filter(section => section.trim());
+  const parsedSections = {};
+
+  for (let i = 0; i < sections.length; i += 2) {
+    const title = sections[i].trim();
+    const content = sections[i + 1]?.trim() || '';
+
+    // Find matching category
+    const category = categories.find(cat =>
+      title.toUpperCase().includes(cat.key.replace(' ', ''))
+    );
+
+    if (category) {
+      parsedSections[category.key] = {
+        ...category,
+        content: content.split('\n').filter(line => line.trim() && !line.startsWith('*'))
+      };
+    }
+  }
+
+  return categories.map(category => parsedSections[category.key]).filter(Boolean);
+}
 
 function App() {
   const [url, setUrl] = useState('');
@@ -179,60 +246,55 @@ function App() {
             </div>
 
             {/* AI Suggestions */}
-            <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-purple-500/30">
-              <div className="flex items-center gap-3 mb-6">
-                <Sparkles className="w-6 h-6 text-yellow-400" />
-                <h3 className="text-2xl font-bold text-white">
+            <div className="space-y-6">
+              <div className="text-center mb-8">
+                <h3 className="text-3xl font-bold text-white mb-2">
                   AI-Powered Content Strategy
                 </h3>
+                <p className="text-gray-300">
+                  Personalized recommendations for optimal growth
+                </p>
               </div>
-              <div className="bg-white/10 rounded-xl p-6 border border-white/20">
-                <div className="text-gray-100 leading-relaxed space-y-4">
-                  {result.suggestions.split('\n\n').map((section, index) => (
-                    <div key={index} className="space-y-2">
-                      {section.split('\n').map((line, lineIndex) => {
-                        // Check if line starts with a number (recommendation)
-                        if (/^\d+\./.test(line.trim())) {
-                          return (
-                            <div key={lineIndex} className="flex gap-3 p-3 bg-purple-500/10 rounded-lg border-l-4 border-purple-400">
-                              <span className="text-purple-400 font-bold text-lg flex-shrink-0">
-                                {line.match(/^\d+/)[0]}
-                              </span>
-                              <span className="text-gray-100">
-                                {line.replace(/^\d+\.\s*/, '')}
-                              </span>
-                            </div>
-                          );
-                        }
-                        // Check if line starts with ** (bold text)
-                        else if (line.startsWith('**') && line.endsWith('**')) {
-                          return (
-                            <h4 key={lineIndex} className="text-lg font-semibold text-white mt-4 mb-2">
-                              {line.replace(/\*\*/g, '')}
-                            </h4>
-                          );
-                        }
-                        // Regular text
-                        else if (line.trim()) {
-                          return (
-                            <p key={lineIndex} className="text-gray-200 pl-4">
-                              {line}
-                            </p>
-                          );
-                        }
-                        return null;
-                      })}
+
+              {parseSuggestions(result.suggestions).map((category, index) => {
+                const IconComponent = category.icon;
+                return (
+                  <div
+                    key={index}
+                    className={`bg-gradient-to-br ${category.color} backdrop-blur-lg rounded-2xl p-8 shadow-2xl border ${category.borderColor}`}
+                  >
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className={`p-3 bg-white/10 rounded-xl`}>
+                        <IconComponent className={`w-8 h-8 ${category.iconColor}`} />
+                      </div>
+                      <div>
+                        <h4 className="text-2xl font-bold text-white">
+                          {category.title}
+                        </h4>
+                        <p className="text-gray-300 mt-1">
+                          Strategic insights for this category
+                        </p>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-              {result.warning && (
-                <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg">
-                  <p className="text-yellow-200 text-sm">
-                    ⚠️ {result.warning}
-                  </p>
-                </div>
-              )}
+
+                    <div className="grid gap-4">
+                      {category.content.map((point, pointIndex) => (
+                        <div
+                          key={pointIndex}
+                          className="bg-white/10 rounded-xl p-4 border border-white/20 hover:bg-white/15 transition-all duration-200"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-2 h-2 rounded-full ${category.iconColor.replace('text-', 'bg-')} mt-2 flex-shrink-0`} />
+                            <p className="text-gray-100 leading-relaxed">
+                              {point.trim()}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
