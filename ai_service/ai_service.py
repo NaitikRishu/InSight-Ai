@@ -15,9 +15,9 @@ HUGGINGFACE_API_KEY = os.getenv('HUGGINGFACE_API_KEY')
 if not HUGGINGFACE_API_KEY:
     print("WARNING: HUGGINGFACE_API_KEY not found in environment variables")
 
-# Initialize client (exactly like your Colab)
+# Initialize client with Novita provider (faster than featherless-ai)
 client = InferenceClient(
-    provider="featherless-ai",
+    provider="novita",
     api_key=HUGGINGFACE_API_KEY
 )
 
@@ -27,7 +27,8 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'service': 'AI Service',
-        'model': 'inclusionAI/Ling-1T'
+        'model': 'deepseek-ai/DeepSeek-V3.1-Terminus',
+        'provider': 'novita'
     }), 200
 
 @app.route('/api/analyze', methods=['POST'])
@@ -74,10 +75,10 @@ Based on this data, provide exactly 10 numbered recommendations covering:
 
 Format your response as a numbered list (1-5) with clear, actionable advice for each point."""
 
-        # Call Hugging Face API using Ling-1 model (exactly like your Colab)
+        # Call Hugging Face API using DeepSeek-V3 (faster with Novita provider)
         try:
             completion = client.chat.completions.create(
-                model="inclusionAI/Ling-1T",
+                model="deepseek-ai/DeepSeek-V3.1-Terminus",
                 messages=[
                     {
                         "role": "user",
