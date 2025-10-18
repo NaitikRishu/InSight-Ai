@@ -48,25 +48,29 @@ function parseSuggestions(suggestions) {
     }
   ];
 
-  const sections = suggestions.split(/\*\*(.*?)\*\*/).filter(section => section.trim());
   const parsedSections = {};
 
-  for (let i = 0; i < sections.length; i += 2) {
-    const title = sections[i].trim();
-    const content = sections[i + 1]?.trim() || '';
+  // Split by category headers (format: "CATEGORY:")
+  categories.forEach(category => {
+    const regex = new RegExp(`${category.key}:([\\s\\S]*?)(?=${categories.find(c => c.key !== category.key)?.key}:|$)`, 'i');
+    const match = suggestions.match(regex);
 
-    // Find matching category
-    const category = categories.find(cat =>
-      title.toUpperCase().includes(cat.key.replace(' ', ''))
-    );
+    if (match) {
+      const content = match[1].trim();
+      // Extract bullet points (lines that start with •)
+      const bulletPoints = content.split('\n')
+        .filter(line => line.trim().match(/^•\s/))
+        .map(line => line.replace(/^•\s*/, '').trim())
+        .filter(line => line.length > 0);
 
-    if (category) {
-      parsedSections[category.key] = {
-        ...category,
-        content: content.split('\n').filter(line => line.trim() && !line.startsWith('*'))
-      };
+      if (bulletPoints.length > 0) {
+        parsedSections[category.key] = {
+          ...category,
+          content: bulletPoints
+        };
+      }
     }
-  }
+  });
 
   return categories.map(category => parsedSections[category.key]).filter(Boolean);
 }
@@ -135,7 +139,7 @@ function App() {
             </h1>
           </div>
           <p className="text-gray-300 text-lg">
-            AI-powered content strategy recommendations using DeepSeek-V3
+            AI-powered content strategy recommendations using Llama-3.1
           </p>
         </div>
 
@@ -256,45 +260,74 @@ function App() {
                 </p>
               </div>
 
-              {parseSuggestions(result.suggestions).map((category, index) => {
-                const IconComponent = category.icon;
-                return (
-                  <div
-                    key={index}
-                    className={`bg-gradient-to-br ${category.color} backdrop-blur-lg rounded-2xl p-8 shadow-2xl border ${category.borderColor}`}
-                  >
-                    <div className="flex items-center gap-4 mb-6">
-                      <div className={`p-3 bg-white/10 rounded-xl`}>
-                        <IconComponent className={`w-8 h-8 ${category.iconColor}`} />
+              {parseSuggestions(result.suggestions).length > 0 ? (
+                parseSuggestions(result.suggestions).map((category, index) => {
+                  const IconComponent = category.icon;
+                  return (
+                    <div
+                      key={index}
+                      className={`bg-gradient-to-br ${category.color} backdrop-blur-lg rounded-2xl p-8 shadow-2xl border ${category.borderColor} relative overflow-hidden`}
+                    >
+                      {/* Background Pattern */}
+                      <div className="absolute inset-0 opacity-5">
+                        <div className="absolute top-4 right-4 w-32 h-32 rounded-full bg-white/20"></div>
+                        <div className="absolute bottom-4 left-4 w-24 h-24 rounded-full bg-white/10"></div>
                       </div>
-                      <div>
-                        <h4 className="text-2xl font-bold text-white">
-                          {category.title}
-                        </h4>
-                        <p className="text-gray-300 mt-1">
-                          Strategic insights for this category
-                        </p>
-                      </div>
-                    </div>
 
-                    <div className="grid gap-4">
-                      {category.content.map((point, pointIndex) => (
-                        <div
-                          key={pointIndex}
-                          className="bg-white/10 rounded-xl p-4 border border-white/20 hover:bg-white/15 transition-all duration-200"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className={`w-2 h-2 rounded-full ${category.iconColor.replace('text-', 'bg-')} mt-2 flex-shrink-0`} />
-                            <p className="text-gray-100 leading-relaxed">
-                              {point.trim()}
+                      <div className="relative z-10">
+                        <div className="flex items-center gap-4 mb-6">
+                          <div className={`p-4 bg-white/20 rounded-2xl shadow-lg`}>
+                            <IconComponent className={`w-10 h-10 ${category.iconColor}`} />
+                          </div>
+                          <div>
+                            <h4 className="text-3xl font-bold text-white mb-1">
+                              {category.title}
+                            </h4>
+                            <p className="text-gray-200 text-sm">
+                              Strategic insights for optimization
                             </p>
                           </div>
                         </div>
-                      ))}
+
+                        <div className="grid gap-4">
+                          {category.content.map((point, pointIndex) => (
+                            <div
+                              key={pointIndex}
+                              className="bg-white/10 rounded-xl p-5 border border-white/20 hover:bg-white/15 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
+                            >
+                              <div className="flex items-start gap-4">
+                                <div className={`w-3 h-3 rounded-full ${category.iconColor.replace('text-', 'bg-')} mt-2 flex-shrink-0 shadow-sm`} />
+                                <div className="flex-1">
+                                  <p className="text-gray-100 leading-relaxed text-base">
+                                    <span className="font-semibold text-white">{point.split(':')[0]}</span>
+                                    {point.includes(':') ? ':' : ''}
+                                    <span className="text-gray-200">{point.split(':').slice(1).join(':')}</span>
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                // Fallback: Display raw suggestions if parsing fails
+                <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-purple-500/30">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Sparkles className="w-6 h-6 text-yellow-400" />
+                    <h3 className="text-2xl font-bold text-white">
+                      AI-Powered Content Strategy
+                    </h3>
+                  </div>
+                  <div className="bg-white/10 rounded-xl p-6 border border-white/20">
+                    <div className="text-gray-100 whitespace-pre-wrap leading-relaxed">
+                      {result.suggestions}
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              )}
             </div>
           </div>
         )}

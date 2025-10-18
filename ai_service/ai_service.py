@@ -27,7 +27,7 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'service': 'AI Service',
-        'model': 'deepseek-ai/DeepSeek-V3.1-Terminus',
+        'model': 'meta-llama/Llama-3.1-8B-Instruct',
         'provider': 'novita'
     }), 200
 
@@ -66,36 +66,39 @@ Recent Videos (with view counts):
         
         prompt += """
 
-Based on this data, provide exactly 5 numbered recommendations, each in a distinct category:
+Based on this data, provide exactly 5 distinct categories with recommendations:
 
-1. **CONTENT THEMES** - Content themes and topics that are working
-2. **TITLE OPTIMIZATION** - Title optimization strategies
-3. **UPLOAD STRATEGY** - Upload frequency and timing suggestions
-4. **ENGAGEMENT TACTICS** - Engagement tactics based on successful videos
-5. **GROWTH OPPORTUNITIES** - Growth opportunities and content gaps
+CONTENT THEMES:
+• Content theme recommendation 1
+• Content theme recommendation 2
+• Content theme recommendation 3
 
-Format your response as:
-**CONTENT THEMES**
-[Your recommendations here]
+TITLE OPTIMIZATION:
+• Title optimization recommendation 1
+• Title optimization recommendation 2
+• Title optimization recommendation 3
 
-**TITLE OPTIMIZATION**
-[Your recommendations here]
+UPLOAD STRATEGY:
+• Upload strategy recommendation 1
+• Upload strategy recommendation 2
+• Upload strategy recommendation 3
 
-**UPLOAD STRATEGY**
-[Your recommendations here]
+ENGAGEMENT TACTICS:
+• Engagement tactic recommendation 1
+• Engagement tactic recommendation 2
+• Engagement tactic recommendation 3
 
-**ENGAGEMENT TACTICS**
-[Your recommendations here]
+GROWTH OPPORTUNITIES:
+• Growth opportunity recommendation 1
+• Growth opportunity recommendation 2
+• Growth opportunity recommendation 3
 
-**GROWTH OPPORTUNITIES**
-[Your recommendations here]
-
-Provide 2-3 specific, actionable bullet points for each category."""
+Provide 2-3 specific, actionable recommendations for each category using bullet points (•)."""
 
         # Call Hugging Face API using DeepSeek-V3 (faster with Novita provider)
         try:
             completion = client.chat.completions.create(
-                model="deepseek-ai/DeepSeek-V3.1-Terminus",
+                model="meta-llama/Llama-3.1-8B-Instruct",
                 messages=[
                     {
                         "role": "user",
@@ -129,6 +132,6 @@ Provide 2-3 specific, actionable bullet points for each category."""
 if __name__ == '__main__':
     port = int(os.getenv('AI_SERVICE_PORT', 5002))
     print(f"🤖 AI Service starting on port {port}")
-    print(f"📊 Using model: inclusionAI/Ling-1T")
+    print(f"📊 Using model: meta-llama/Llama-3.1-8B-Instruct")
     print(f"🔑 API Key configured: {'Yes' if HUGGINGFACE_API_KEY else 'No'}")
     app.run(host='0.0.0.0', port=port, debug=True)
