@@ -50,27 +50,40 @@ function parseSuggestions(suggestions) {
 
   const parsedSections = {};
 
-  // Split by category headers (format: "CATEGORY:")
-  categories.forEach(category => {
-    const regex = new RegExp(`${category.key}:([\\s\\S]*?)(?=${categories.find(c => c.key !== category.key)?.key}:|$)`, 'i');
-    const match = suggestions.match(regex);
+  // Split by lines and look for category headers
+  const lines = suggestions.split('\n');
+  let currentCategory = null;
+  let currentContent = [];
 
-    if (match) {
-      const content = match[1].trim();
-      // Extract bullet points (lines that start with •)
-      const bulletPoints = content.split('\n')
-        .filter(line => line.trim().match(/^•\s/))
-        .map(line => line.replace(/^•\s*/, '').trim())
-        .filter(line => line.length > 0);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
 
-      if (bulletPoints.length > 0) {
-        parsedSections[category.key] = {
-          ...category,
-          content: bulletPoints
+    // Check if this is a category header (ends with :)
+    if (line.endsWith(':') && categories.some(cat => cat.key === line.slice(0, -1).toUpperCase())) {
+      // Save previous category if exists
+      if (currentCategory && currentContent.length > 0) {
+        parsedSections[currentCategory.key] = {
+          ...currentCategory,
+          content: currentContent
         };
       }
+
+      // Start new category
+      currentCategory = categories.find(cat => cat.key === line.slice(0, -1).toUpperCase());
+      currentContent = [];
+    } else if (currentCategory && line.startsWith('•')) {
+      // This is a bullet point for current category
+      currentContent.push(line.substring(1).trim());
     }
-  });
+  }
+
+  // Don't forget the last category
+  if (currentCategory && currentContent.length > 0) {
+    parsedSections[currentCategory.key] = {
+      ...currentCategory,
+      content: currentContent
+    };
+  }
 
   return categories.map(category => parsedSections[category.key]).filter(Boolean);
 }
