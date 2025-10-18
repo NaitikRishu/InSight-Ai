@@ -68,7 +68,7 @@ function App() {
             </h1>
           </div>
           <p className="text-gray-300 text-lg">
-            AI-powered content strategy recommendations using Hugging Face Ling-1
+            AI-powered content strategy recommendations using DeepSeek-V3
           </p>
         </div>
 
@@ -145,18 +145,33 @@ function App() {
                 <TrendingUp className="w-6 h-6 text-purple-400" />
                 <h3 className="text-2xl font-bold text-white">Recent Videos</h3>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {result.videos.map((video, index) => (
                   <div
                     key={index}
-                    className="bg-white/5 rounded-lg p-4 border border-white/10 hover:bg-white/10 transition-all duration-200"
+                    className="bg-white/5 rounded-xl p-4 border border-white/10 hover:bg-white/10 transition-all duration-200 hover:scale-105"
                   >
-                    <p className="text-white font-medium mb-2 line-clamp-2">
+                    <div className="aspect-video mb-4 rounded-lg overflow-hidden bg-white/10">
+                      <img
+                        src={video.thumbnail}
+                        alt={video.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.src = 'https://via.placeholder.com/320x180?text=No+Thumbnail';
+                        }}
+                      />
+                    </div>
+                    <h4 className="text-white font-semibold mb-2 line-clamp-2 leading-tight">
                       {video.title}
-                    </p>
-                    <div className="flex items-center gap-2 text-gray-400 text-sm">
-                      <Eye className="w-4 h-4" />
-                      <span>{video.views} views</span>
+                    </h4>
+                    <div className="flex items-center justify-between text-gray-400 text-sm">
+                      <div className="flex items-center gap-1">
+                        <Eye className="w-4 h-4" />
+                        <span>{video.views} views</span>
+                      </div>
+                      <span className="text-xs bg-purple-500/20 px-2 py-1 rounded-full">
+                        #{index + 1}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -172,8 +187,43 @@ function App() {
                 </h3>
               </div>
               <div className="bg-white/10 rounded-xl p-6 border border-white/20">
-                <div className="text-gray-100 whitespace-pre-wrap leading-relaxed">
-                  {result.suggestions}
+                <div className="text-gray-100 leading-relaxed space-y-4">
+                  {result.suggestions.split('\n\n').map((section, index) => (
+                    <div key={index} className="space-y-2">
+                      {section.split('\n').map((line, lineIndex) => {
+                        // Check if line starts with a number (recommendation)
+                        if (/^\d+\./.test(line.trim())) {
+                          return (
+                            <div key={lineIndex} className="flex gap-3 p-3 bg-purple-500/10 rounded-lg border-l-4 border-purple-400">
+                              <span className="text-purple-400 font-bold text-lg flex-shrink-0">
+                                {line.match(/^\d+/)[0]}
+                              </span>
+                              <span className="text-gray-100">
+                                {line.replace(/^\d+\.\s*/, '')}
+                              </span>
+                            </div>
+                          );
+                        }
+                        // Check if line starts with ** (bold text)
+                        else if (line.startsWith('**') && line.endsWith('**')) {
+                          return (
+                            <h4 key={lineIndex} className="text-lg font-semibold text-white mt-4 mb-2">
+                              {line.replace(/\*\*/g, '')}
+                            </h4>
+                          );
+                        }
+                        // Regular text
+                        else if (line.trim()) {
+                          return (
+                            <p key={lineIndex} className="text-gray-200 pl-4">
+                              {line}
+                            </p>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  ))}
                 </div>
               </div>
               {result.warning && (
@@ -206,7 +256,7 @@ function App() {
       {/* Footer */}
       <div className="container mx-auto px-4 py-8 mt-12">
         <div className="text-center text-gray-400 text-sm">
-          <p>Powered by Hugging Face Ling-1 • Built with React, Node.js & Python</p>
+          <p>Powered by DeepSeek-V3 • Built with React, Node.js & Python</p>
         </div>
       </div>
     </div>

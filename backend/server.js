@@ -63,7 +63,8 @@ async function fetchChannelData(url, limit = 15) {
       title: e.title || 'N/A',
       views: formatViews(e.view_count || 0),
       id: e.id,
-      upload_date: e.upload_date
+      upload_date: e.upload_date,
+      thumbnail: e.thumbnail || e.thumbnails?.[0]?.url || 'https://via.placeholder.com/320x180?text=No+Thumbnail'
     }));
     
     const channelData = {
