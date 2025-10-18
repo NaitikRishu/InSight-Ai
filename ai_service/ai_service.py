@@ -2,7 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
-from huggingface_hub import InferenceClient
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+import torch
 
 # Load environment variables
 load_dotenv()
@@ -10,16 +11,34 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-# Initialize Hugging Face client
-HUGGINGFACE_API_KEY = os.getenv('HUGGINGFACE_API_KEY')
-if not HUGGINGFACE_API_KEY:
-    print("WARNING: HUGGINGFACE_API_KEY not found in environment variables")
+# Initialize local AI model (no API credits needed!)
+MODEL_NAME = "microsoft/DialoGPT-small"  # Much smaller and faster model
 
-# Initialize client with Novita provider (faster than featherless-ai)
-client = InferenceClient(
-    provider="novita",
-    api_key=HUGGINGFACE_API_KEY
-)
+try:
+    print(f"🤖 Loading local model: {MODEL_NAME}")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+
+    # Create pipeline for easier text generation
+    generator = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        device=0 if device == "cuda" else -1,
+        pad_token_id=tokenizer.eos_token_id
+    )
+
+    print(f"✅ Model loaded successfully on {device}")
+
+except Exception as e:
+    print(f"❌ Failed to load model: {e}")
+    print("💡 Make sure you have enough RAM/GPU memory for the model")
+    generator = None
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -27,8 +46,9 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'service': 'AI Service',
-        'model': 'meta-llama/Llama-3.1-8B-Instruct',
-        'provider': 'novita'
+        'model': MODEL_NAME,
+        'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+        'local_model': True
     }), 200
 
 @app.route('/api/analyze', methods=['POST'])
@@ -95,31 +115,34 @@ GROWTH OPPORTUNITIES:
 
 Provide 2-3 specific, actionable recommendations for each category using bullet points (•)."""
 
-        # Call Hugging Face API using DeepSeek-V3 (faster with Novita provider)
+        # Call local AI model using transformers pipeline
         try:
-            completion = client.chat.completions.create(
-                model="meta-llama/Llama-3.1-8B-Instruct",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+            if generator is None:
+                raise Exception("Local model not loaded")
+
+            # Generate response using local model
+            response = generator(
+                prompt,
+                max_length=len(prompt) + 500,  # Limit response length
+                temperature=0.7,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,
+                num_return_sequences=1
             )
-            
-            # Extract the generated text
-            suggestions = completion.choices[0].message.content
-            
+
+            # Extract the generated text (remove the input prompt)
+            suggestions = response[0]['generated_text'][len(prompt):].strip()
+
             return jsonify({
                 'success': True,
                 'suggestions': suggestions
             }), 200
             
-        except Exception as hf_error:
-            print(f"Hugging Face API Error: {str(hf_error)}")
+        except Exception as local_error:
+            print(f"Local model error: {str(local_error)}")
             return jsonify({
                 'success': False,
-                'error': f'AI model error: {str(hf_error)}'
+                'error': f'Local AI model error: {str(local_error)}'
             }), 500
     
     except Exception as e:
@@ -132,6 +155,6 @@ Provide 2-3 specific, actionable recommendations for each category using bullet 
 if __name__ == '__main__':
     port = int(os.getenv('AI_SERVICE_PORT', 5002))
     print(f"🤖 AI Service starting on port {port}")
-    print(f"📊 Using model: meta-llama/Llama-3.1-8B-Instruct")
-    print(f"🔑 API Key configured: {'Yes' if HUGGINGFACE_API_KEY else 'No'}")
+    print(f"📊 Using local model: {MODEL_NAME}")
+    print(f"🔑 No API key needed - running locally!")
     app.run(host='0.0.0.0', port=port, debug=True)
