@@ -6,13 +6,12 @@ WORKDIR /app
 # Copy the requirements file
 COPY requirements.txt ./
 
-# Install the dependencies
-# We create a virtual env within the container for best practice
-RUN python -m venv venv
-ENV PATH="/app/venv/bin:$PATH"
-
-# THIS IS THE FIXED LINE:
+# Install the dependencies globally (no venv)
 RUN pip install --no-cache-dir -r requirements.txt
+
+# --- ADDED STEP: Show installed packages ---
+RUN pip freeze
+# -------------------------------------------
 
 # Copy the rest of the application code
 COPY . .
