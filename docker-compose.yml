@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source code for hot-reloading
+      - ./frontend/src:/app/src
+    depends_on:
+      - backend
+    environment:
+      # Tells React to connect to the backend on localhost
+      - REACT_APP_BACKEND_URL=http://localhost:5001
+
+  backend:
+    build: ./backend
+    ports:
+      - "5001:5001"
+    volumes:
+      # Mount source code for hot-reloading (using nodemon)
+      - ./backend:/app
+      - /app/node_modules # Don't mount host node_modules
+    environment:
+      # Tells Node.js to connect to the 'ai_service' container
+      - AI_SERVICE_URL=http://ai_service:5002
+      - BACKEND_PORT=5001
+    depends_on:
+      - ai_service
+    # Add a healthcheck to wait for the AI service to be ready
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://ai_service:5002/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s # Give AI service time to load model
+
+  ai_service:
+    build: ./ai_service
+    ports:
+      - "5002:5002"
+    volumes:
+      # Mount source code for hot-reloading (using Flask's debug)
+      - ./ai_service:/app
+      - /app/venv # Don't mount host venv
+    environment:
+      - AI_SERVICE_PORT=5002
+      # Enable Flask debug mode for auto-reloading
+      - FLASK_ENV=development
+      - FLASK_APP=ai_service.py
+    # This service can be memory-intensive
+    deploy:
+      resources:
+        reservations:
+          memory: 2G

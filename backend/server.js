@@ -1,171 +1,129 @@
+// backend/server.js
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const YTDlpWrap = require('yt-dlp-wrap').default;
-require('dotenv').config();
+const puppeteer = require('puppeteer');
 
 const app = express();
+const PORT = process.env.BACKEND_PORT || 5003;
+// FIX: Point to the correct AI service port
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:5002';
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.BACKEND_PORT || 5001;
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:5002';
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'Backend Service',
-    port: PORT
-  });
-});
-
-// Normalize channel URL
-function normalizeChannelUrl(url) {
-  url = url.trim();
-  if (!url.includes('youtube.com')) {
-    url = `https://www.youtube.com/${url.replace(/^\//, '')}`;
-  }
-  if (!url.includes('/videos')) {
-    url = url.replace(/\/$/, '') + '/videos';
-  }
-  return url;
-}
-
-// Fetch channel data using yt-dlp
-async function fetchChannelData(url, limit = 15) {
+// Scrape YouTube channel data
+const scrapeChannelData = async (channelUrl) => {
+  let browser = null;
   try {
-    console.log(`🔍 Fetching channel data for: ${url}`);
-    
-    const ytDlp = new YTDlpWrap();
-    
-    // Download yt-dlp binary if not present
-    try {
-      await YTDlpWrap.downloadFromGithub();
-    } catch (e) {
-      console.log('yt-dlp already installed or download failed:', e.message);
-    }
-    
-    const info = await ytDlp.execPromise([
-      url,
-      '--dump-single-json',
-      '--flat-playlist',
-      '--skip-download',
-      `--playlist-end=${limit}`
-    ]);
-    
-    const data = JSON.parse(info);
-    
-    const entries = data.entries || [];
-    const videos = entries.slice(0, limit).map(e => ({
-      title: e.title || 'N/A',
-      views: formatViews(e.view_count || 0),
-      id: e.id,
-      upload_date: e.upload_date,
-      thumbnail: e.thumbnail || e.thumbnails?.[0]?.url || 'https://via.placeholder.com/320x180?text=No+Thumbnail'
-    }));
-    
-    const channelData = {
-      channel: {
-        name: data.channel || data.uploader || data.title || 'Unknown Channel',
-        subscribers: formatSubscribers(data.channel_follower_count)
-      },
-      videos: videos
-    };
-    
-    console.log(`✅ Fetched channel: ${channelData.channel.name}`);
-    console.log(`📊 Found ${videos.length} videos`);
-    
-    return channelData;
-    
-  } catch (error) {
-    console.error('❌ yt-dlp error:', error.message);
-    throw new Error(`Failed to fetch channel data: ${error.message}`);
-  }
-}
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
 
-function formatViews(count) {
-  if (!count) return '0';
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
-  return count.toString();
-}
+    const page = await browser.newPage();
+    await page.goto(`${channelUrl.replace(/\/+$/, '')}/videos`, {
+      waitUntil: 'networkidle2',
+      timeout: 60000,
+    });
 
-function formatSubscribers(count) {
-  if (!count) return 'N/A';
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M subscribers`;
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}K subscribers`;
-  return `${count} subscribers`;
-}
+    const data = await page.evaluate(() => {
+      const channelName = document.querySelector('yt-formatted-string.ytd-channel-name')?.innerText || 'Unknown';
+      const subscriberCountText = document.querySelector('yt-formatted-string#subscriber-count')?.innerText || 'N/A';
 
-// Main analyze endpoint
-app.post('/api/analyze', async (req, res) => {
-  try {
-    const { url } = req.body;
-    
-    // Validate input
-    if (!url) {
-      return res.status(400).json({
-        success: false,
-        error: 'YouTube URL is required'
-      });
-    }
-    
-    console.log(`📥 Received analyze request for: ${url}`);
-    
-    // Normalize and fetch channel data
-    const normalizedUrl = normalizeChannelUrl(url);
-    const scrapedData = await fetchChannelData(normalizedUrl, 15);
-    
-    // Step 2: Send to AI service for analysis
-    console.log(`🤖 Sending data to AI service...`);
-    
-    try {
-      const aiResponse = await axios.post(`${AI_SERVICE_URL}/api/analyze`, {
-        scrapedData: scrapedData
-      }, {
-        timeout: 60000  // Increased to 60 seconds for AI processing
-      });
+      const videos = [];
+      const nodes = document.querySelectorAll('ytd-rich-item-renderer');
       
-      // Step 3: Combine and return results
-      const result = {
-        success: true,
-        channel: scrapedData.channel,
-        videos: scrapedData.videos,
-        suggestions: aiResponse.data.suggestions
+      for (let i = 0; i < Math.min(nodes.length, 15); i++) {
+        const el = nodes[i];
+        const title = el.querySelector('#video-title')?.innerText || 'N/A';
+        const meta = el.querySelector('#metadata-line span')?.innerText || '';
+        const viewsMatch = meta.match(/([\d.,]+[KMB]?)\s*views/);
+        const views = viewsMatch ? viewsMatch[1] : '0';
+        
+        videos.push({ title, views });
+      }
+
+      return {
+        channel: { name: channelName, subscribers: subscriberCountText },
+        videos,
       };
-      
-      console.log(`✅ Analysis complete for ${scrapedData.channel.name}`);
-      
-      res.json(result);
-      
-    } catch (aiError) {
-      console.error('❌ AI Service error:', aiError.message);
-      
-      // Return scraped data even if AI fails
-      res.json({
-        success: true,
-        channel: scrapedData.channel,
-        videos: scrapedData.videos,
-        suggestions: 'AI analysis temporarily unavailable. Please try again later.',
-        warning: 'AI service error'
-      });
-    }
-    
+    });
+
+    return data;
+  } finally {
+    if (browser) await browser.close();
+  }
+};
+
+// FIX: Helper function to parse view counts like "1.2M", "300K"
+const parseViews = (viewStr) => {
+  if (!viewStr || typeof viewStr !== 'string') return 0;
+  const num = parseFloat(viewStr.replace(/,/g, ''));
+  if (viewStr.endsWith('K')) return num * 1000;
+  if (viewStr.endsWith('M')) return num * 1000000;
+  if (viewStr.endsWith('B')) return num * 1000000000;
+  return num;
+};
+
+// Get AI suggestions from AI service
+const getAISuggestions = async (scrapedData) => {
+  try {
+    const response = await axios.post(
+      // FIX: Point to the correct AI service route
+      `${AI_SERVICE_URL}/api/analyze`,
+      { scrapedData },
+      { timeout: 60000 } // Keep a long timeout, local models can be slow
+    );
+    return response.data.suggestions;
   } catch (error) {
-    console.error('❌ Server error:', error.message);
+    console.error('AI Service Error:', error.message);
+    throw new Error('Failed to get AI suggestions');
+  }
+};
+
+// API endpoint
+app.post('/api/analyze', async (req, res) => {
+  const { url } = req.body || {};
+  
+  if (!url) {
+    return res.status(400).json({ error: 'YouTube channel URL is required' });
+  }
+
+  try {
+    console.log(`🔍 Scraping: ${url}`);
+    const scraped = await scrapeChannelData(url);
+    
+    // FIX: Calculate metrics to prevent frontend crash
+    const totalViews = scraped.videos.reduce((acc, video) => {
+      return acc + parseViews(video.views);
+    }, 0);
+    const avgViews = scraped.videos.length > 0 ? totalViews / scraped.videos.length : 0;
+    
+    console.log(`🤖 Getting AI suggestions...`);
+    const suggestions = await getAISuggestions(scraped);
+    
+    res.json({
+      success: true,
+      channel: scraped.channel,
+      videos: scraped.videos,
+      suggestions,
+      metrics: { avgViews } // FIX: Send metrics to frontend
+    });
+  } catch (error) {
+    console.error('Error:', error.message);
     res.status(500).json({
-      success: false,
-      error: error.message || 'An error occurred while analyzing the channel'
+      error: error.message || 'Failed to analyze channel',
     });
   }
 });
 
-// Start server
+app.get('/health', (req, res) => {
+  res.json({ status: 'Backend running' });
+});
+
 app.listen(PORT, () => {
-  console.log(`🚀 Backend server running on port ${PORT}`);
-  console.log(`🔗 AI Service URL: ${AI_SERVICE_URL}`);
-  console.log(`📡 Ready to accept requests at http://localhost:${PORT}/api/analyze`);
+  console.log(`✅ Backend running on port ${PORT}`);
+  console.log(`📡 AI Service URL: ${AI_SERVICE_URL}`);
 });

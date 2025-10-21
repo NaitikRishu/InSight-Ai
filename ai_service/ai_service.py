@@ -1,160 +1,116 @@
+import os
+import torch
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
-import os
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-import torch
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 # Load environment variables
 load_dotenv()
 
+# --- Model Loading ---
+# Load the model and tokenizer ONCE when the app starts
+# This can take a few minutes the first time it downloads the model
+print("Loading local model (google/flan-t5-base)...")
+MODEL_NAME = "google/flan-t5-base"
+try:
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
+    # Check if GPU is available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval() # Set model to evaluation mode
+    print(f"Model loaded successfully on {device}.")
+except Exception as e:
+    print(f"Error loading model: {e}")
+    # Exit if model can't be loaded
+    exit(1)
+# ---------------------
+
 app = Flask(__name__)
 CORS(app)
 
-# Initialize local AI model (no API credits needed!)
-MODEL_NAME = "microsoft/DialoGPT-small"  # Much smaller and faster model
-
-try:
-    print(f"🤖 Loading local model: {MODEL_NAME}")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model.to(device)
-
-    # Create pipeline for easier text generation
-    generator = pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        device=0 if device == "cuda" else -1,
-        pad_token_id=tokenizer.eos_token_id
-    )
-
-    print(f"✅ Model loaded successfully on {device}")
-
-except Exception as e:
-    print(f"❌ Failed to load model: {e}")
-    print("💡 Make sure you have enough RAM/GPU memory for the model")
-    generator = None
-
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
+    """Health check endpoint to verify service is running."""
     return jsonify({
         'status': 'healthy',
         'service': 'AI Service',
-        'model': MODEL_NAME,
-        'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-        'local_model': True
+        'model': MODEL_NAME
     }), 200
 
 @app.route('/api/analyze', methods=['POST'])
-def analyze_channel():
+def analyze_data():
     """
-    Analyze YouTube channel data and generate content strategy recommendations
-    using Hugging Face Ling-1 model
+    Analyzes scraped YouTube data using the local FLAN-T5 model.
     """
     try:
-        data = request.get_json()
-        
+        data = request.json
         if not data or 'scrapedData' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'Missing scrapedData in request'
-            }), 400
-        
+            return jsonify({'success': False, 'error': 'Invalid data provided'}), 400
+
         scraped_data = data['scrapedData']
         channel = scraped_data.get('channel', {})
         videos = scraped_data.get('videos', [])
-        
-        # Construct prompt for AI analysis
-        prompt = f"""You are a YouTube content strategy expert. Analyze this channel data and provide 5 specific, actionable content strategy recommendations.
 
-Channel Information:
-- Name: {channel.get('name', 'Unknown')}
-- Subscribers: {channel.get('subscribers', 'Unknown')}
+        # --- Create the Prompt ---
+        video_list_str = ""
+        if not videos:
+            video_list_str = "No recent videos found."
+        else:
+            for i, video in enumerate(videos[:15], 1):
+                video_list_str += f"- \"{video.get('title', 'N/A')}\" (Views: {video.get('views', 'N/A')})\n"
 
-Recent Videos (with view counts):
+        prompt = f"""
+You are an expert YouTube content strategist.
+Analyze the following channel data and provide 5 actionable, specific recommendations to help them grow.
+Focus on content strategy, title optimization, and audience engagement.
+
+Channel Name: {channel.get('name', 'N/A')}
+Subscribers: {channel.get('subscribers', 'N/A')}
+
+Recent Videos:
+{video_list_str}
+
+Your 5 actionable recommendations:
+1.
 """
         
-        # Add video information to prompt
-        for idx, video in enumerate(videos[:15], 1):
-            prompt += f"{idx}. {video.get('title', 'Unknown')} - {video.get('views', 'Unknown')} views\n"
+        # --- Generate Response ---
+        print(f"Generating insights for channel: {channel.get('name', 'N/A')}")
         
-        prompt += """
-
-Based on this data, provide exactly 5 distinct categories with recommendations:
-
-CONTENT THEMES:
-• Content theme recommendation 1
-• Content theme recommendation 2
-• Content theme recommendation 3
-
-TITLE OPTIMIZATION:
-• Title optimization recommendation 1
-• Title optimization recommendation 2
-• Title optimization recommendation 3
-
-UPLOAD STRATEGY:
-• Upload strategy recommendation 1
-• Upload strategy recommendation 2
-• Upload strategy recommendation 3
-
-ENGAGEMENT TACTICS:
-• Engagement tactic recommendation 1
-• Engagement tactic recommendation 2
-• Engagement tactic recommendation 3
-
-GROWTH OPPORTUNITIES:
-• Growth opportunity recommendation 1
-• Growth opportunity recommendation 2
-• Growth opportunity recommendation 3
-
-Provide 2-3 specific, actionable recommendations for each category using bullet points (•)."""
-
-        # Call local AI model using transformers pipeline
-        try:
-            if generator is None:
-                raise Exception("Local model not loaded")
-
-            # Generate response using local model
-            response = generator(
-                prompt,
-                max_length=len(prompt) + 500,  # Limit response length
-                temperature=0.7,
-                do_sample=True,
-                pad_token_id=tokenizer.eos_token_id,
-                num_return_sequences=1
+        # Tokenize the prompt
+        inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True).to(device)
+        
+        # Generate output
+        with torch.no_grad(): # Disable gradient calculation for inference
+            outputs = model.generate(
+                **inputs,
+                max_length=512,      # Max length of the *output*
+                num_beams=5,         # Use beam search for better quality
+                early_stopping=True,
+                no_repeat_ngram_size=2,
+                temperature=0.8
             )
+        
+        # Decode the generated text
+        suggestions = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        print("Successfully generated insights.")
+        
+        return jsonify({
+            'success': True,
+            'suggestions': suggestions
+        })
 
-            # Extract the generated text (remove the input prompt)
-            suggestions = response[0]['generated_text'][len(prompt):].strip()
-
-            return jsonify({
-                'success': True,
-                'suggestions': suggestions
-            }), 200
-            
-        except Exception as local_error:
-            print(f"Local model error: {str(local_error)}")
-            return jsonify({
-                'success': False,
-                'error': f'Local AI model error: {str(local_error)}'
-            }), 500
-    
     except Exception as e:
-        print(f"Error in analyze_channel: {str(e)}")
+        print(f"Error during analysis: {e}")
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': 'Internal server error during AI analysis'
         }), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('AI_SERVICE_PORT', 5002))
-    print(f"🤖 AI Service starting on port {port}")
-    print(f"📊 Using local model: {MODEL_NAME}")
-    print(f"🔑 No API key needed - running locally!")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    port = int(os.environ.get('AI_SERVICE_PORT', 5002))
+    # Use 0.0.0.0 to be accessible within Docker
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_ENV') == 'development')

@@ -1,440 +1,276 @@
 import React, { useState } from 'react';
-import { Youtube, Sparkles, TrendingUp, Users, Eye, Loader2, AlertCircle, Palette, Edit3, Calendar, MessageCircle, Target } from 'lucide-react';
 import axios from 'axios';
+import { Youtube, Search, BrainCircuit, Loader2, ServerCrash, Star } from 'lucide-react';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5003';
+// Get backend URL from environment variable
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5001';
 
-function parseSuggestions(suggestions) {
-  const categories = [
-    {
-      key: 'CONTENT THEMES',
-      title: 'Content Themes',
-      icon: Palette,
-      color: 'from-green-500/20 to-emerald-500/20',
-      borderColor: 'border-green-500/30',
-      iconColor: 'text-green-400'
-    },
-    {
-      key: 'TITLE OPTIMIZATION',
-      title: 'Title Optimization',
-      icon: Edit3,
-      color: 'from-blue-500/20 to-cyan-500/20',
-      borderColor: 'border-blue-500/30',
-      iconColor: 'text-blue-400'
-    },
-    {
-      key: 'UPLOAD STRATEGY',
-      title: 'Upload Strategy',
-      icon: Calendar,
-      color: 'from-purple-500/20 to-pink-500/20',
-      borderColor: 'border-purple-500/30',
-      iconColor: 'text-purple-400'
-    },
-    {
-      key: 'ENGAGEMENT TACTICS',
-      title: 'Engagement Tactics',
-      icon: MessageCircle,
-      color: 'from-orange-500/20 to-red-500/20',
-      borderColor: 'border-orange-500/30',
-      iconColor: 'text-orange-400'
-    },
-    {
-      key: 'GROWTH OPPORTUNITIES',
-      title: 'Growth Opportunities',
-      icon: Target,
-      color: 'from-indigo-500/20 to-purple-500/20',
-      borderColor: 'border-indigo-500/30',
-      iconColor: 'text-indigo-400'
-    }
-  ];
+// --- Reusable Components ---
 
-  const parsedSections = {};
+const Header = () => (
+  <header className="text-center p-6">
+    <div className="flex items-center justify-center space-x-3">
+      <BrainCircuit size={40} className="text-pink-400" />
+      <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-400 to-purple-500">
+        InSight AI
+      </h1>
+    </div>
+    <p className="text-gray-400 mt-2">Your AI-Powered YouTube Content Strategist</p>
+  </header>
+);
 
-  // Split by lines and look for category headers
-  const lines = suggestions.split('\n');
-  let currentCategory = null;
-  let currentContent = [];
+const SearchForm = ({ url, setUrl, handleSubmit, loading }) => (
+  <div className="relative w-full max-w-2xl mx-auto">
+    <Youtube className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
+    <input
+      type="text"
+      value={url}
+      onChange={(e) => setUrl(e.target.value)}
+      onKeyPress={(e) => e.key === 'Enter' && !loading && handleSubmit()}
+      placeholder="Enter YouTube channel URL (e.g., https://youtube.com/@channelname)"
+      className="w-full pl-12 pr-28 py-4 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+      disabled={loading}
+    />
+    <button
+      onClick={handleSubmit}
+      disabled={loading}
+      className="absolute right-3 top-1/2 -translate-y-1/2 bg-purple-600 text-white px-5 py-2.5 rounded-lg font-semibold flex items-center justify-center hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {loading ? (
+        <Loader2 className="animate-spin" />
+      ) : (
+        <Search size={20} />
+      )}
+    </button>
+  </div>
+);
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+const ErrorDisplay = ({ error }) => (
+  <div className="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-lg flex items-center space-x-3 max-w-2xl mx-auto">
+    <ServerCrash />
+    <div>
+      <h3 className="font-bold">Analysis Failed</h3>
+      <p>{error}</p>
+    </div>
+  </div>
+);
 
-    // Check if this is a category header (ends with :)
-    if (line.endsWith(':') && categories.some(cat => cat.key === line.slice(0, -1).toUpperCase())) {
-      // Save previous category if exists
-      if (currentCategory && currentContent.length > 0) {
-        parsedSections[currentCategory.key] = {
-          ...currentCategory,
-          content: currentContent
-        };
-      }
+const LoadingSpinner = ({ text }) => (
+  <div className="flex flex-col items-center justify-center p-8 text-gray-400">
+    <Loader2 size={40} className="animate-spin text-purple-400" />
+    <p className="mt-4 text-lg">{text}</p>
+  </div>
+);
 
-      // Start new category
-      currentCategory = categories.find(cat => cat.key === line.slice(0, -1).toUpperCase());
-      currentContent = [];
-    } else if (currentCategory && line.startsWith('•')) {
-      // This is a bullet point for current category
-      currentContent.push(line.substring(1).trim());
-    }
-  }
+const ResultsDisplay = ({ result, aiLoading }) => (
+  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto mt-8">
+    
+    {/* --- Channel & Videos (Col 1 & 2) --- */}
+    <div className="lg:col-span-2 space-y-6">
+      <ChannelCard channel={result.channel} />
+      <VideoList videos={result.videos} />
+    </div>
 
-  // Don't forget the last category
-  if (currentCategory && currentContent.length > 0) {
-    parsedSections[currentCategory.key] = {
-      ...currentCategory,
-      content: currentContent
-    };
-  }
+    {/* --- AI Suggestions (Col 3) --- */}
+    <div className="lg:col-span-1">
+      <AiSuggestions suggestions={result.suggestions} loading={aiLoading} />
+    </div>
+  </div>
+);
 
-  return categories.map(category => parsedSections[category.key]).filter(Boolean);
-}
+const ChannelCard = ({ channel }) => (
+  <div className="card-base">
+    <h2 className="card-title">Channel Overview</h2>
+    <div className="mt-4">
+      <p className="text-2xl font-bold text-white">{channel.name || 'Channel Name Not Found'}</p>
+      <p className="text-lg text-purple-300">{channel.subscribers || 'Subscriber count not found'}</p>
+    </div>
+  </div>
+);
+
+const VideoList = ({ videos }) => (
+  <div className="card-base">
+    <h2 className="card-title">Recent Videos (Up to 15)</h2>
+    <div className="mt-4 max-h-96 overflow-y-auto pr-2">
+      {videos.length > 0 ? (
+        <ul className="space-y-3">
+          {videos.map((video, index) => (
+            <li key={index} className="flex justify-between items-center bg-gray-800/60 p-3 rounded-md">
+              <span className="text-gray-300 flex-1 truncate pr-4">{video.title}</span>
+              <span className="text-white font-medium bg-purple-500/20 px-3 py-1 rounded-full text-sm">
+                {video.views}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-gray-400">No recent videos found.</p>
+      )}
+    </div>
+  </div>
+);
+
+const AiSuggestions = ({ suggestions, loading }) => (
+  <div className="card-base sticky top-6">
+    <h2 className="card-title flex items-center space-x-2">
+      <Star className="text-yellow-400" />
+      <span>AI Recommendations</span>
+    </h2>
+    <div className="mt-4 min-h-[200px]">
+      {loading && (
+        <div className="flex flex-col items-center justify-center p-8 text-gray-400">
+          <Loader2 className="animate-spin text-purple-400" />
+          <p className="mt-3 text-center">Generating AI insights...<br/>(This may take a moment)</p>
+        </div>
+      )}
+      {suggestions && (
+        <div 
+          className="prose prose-invert prose-sm text-gray-300 prose-p:my-2 prose-ol:my-2 prose-ol:pl-4"
+          dangerouslySetInnerHTML={{ __html: formatSuggestions(suggestions) }}
+        />
+      )}
+      {!loading && !suggestions && (
+        <div className="flex items-center justify-center h-full text-gray-500">
+          <p>AI suggestions will appear here.</p>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// Helper to format suggestions
+const formatSuggestions = (text) => {
+  // Simple formatter to turn "1. ..." into an ordered list
+  return "<ol>" + text.split(/\n\d+\./)
+    .map(item => item.replace(/^\d+\./, '').trim()) // Clean up numbers
+    .filter(item => item) // Remove empty items
+    .map(item => `<li>${item}</li>`)
+    .join('') + "</ol>";
+};
+
+// --- Main App Component ---
 
 function App() {
   const [url, setUrl] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // For scraping
+  const [aiLoading, setAiLoading] = useState(false); // For AI analysis
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const handleAnalyze = async (e) => {
-    e.preventDefault();
-    
-    if (!url.trim()) {
-      setError('Please enter a YouTube channel URL');
-      return;
-    }
-
+  const handleSubmit = async () => {
+    // Reset state
     setLoading(true);
+    setAiLoading(false);
     setError(null);
     setResult(null);
 
+    // --- Step 1: Scrape the data ---
     try {
-      const response = await axios.post(`${BACKEND_URL}/api/analyze`, {
-        url: url.trim()
-      }, {
-        timeout: 90000
-      });
+      const scrapeResponse = await axios.post(`${BACKEND_URL}/api/scrape`, { url });
+      
+      if (!scrapeResponse.data.success) {
+        throw new Error(scrapeResponse.data.error || 'Scraping failed.');
+      }
 
-      if (response.data.success) {
-        setResult(response.data);
-      } else {
-        setError(response.data.error || 'Analysis failed');
+      // Show scrape results immediately
+      setResult(scrapeResponse.data);
+      setLoading(false);
+      
+      // --- Step 2: Get AI analysis ---
+      setAiLoading(true);
+      try {
+        const aiData = {
+          channel: scrapeResponse.data.channel,
+          videos: scrapeResponse.data.videos
+        };
+        const aiResponse = await axios.post(`${BACKEND_URL}/api/analyze`, aiData);
+
+        if (!aiResponse.data.success) {
+          throw new Error(aiResponse.data.error || 'AI analysis failed.');
+        }
+
+        // Add suggestions to the existing result
+        setResult(prevResult => ({
+          ...prevResult,
+          suggestions: aiResponse.data.suggestions
+        }));
+        
+      } catch (aiError) {
+        console.error('AI analysis error:', aiError);
+        // Set an error but keep the scrape data
+        setError('Scraping succeeded, but AI analysis failed. Check AI service.');
+      } finally {
+        setAiLoading(false);
       }
-    } catch (err) {
-      console.error('Error:', err);
-      if (err.code === 'ECONNABORTED') {
-        setError('Request timeout. The channel might be too large or the server is busy.');
-      } else if (err.response) {
-        setError(err.response.data.error || 'Server error occurred');
-      } else if (err.request) {
-        setError('Cannot connect to server. Please ensure the backend is running on port 5001.');
-      } else {
-        setError('An unexpected error occurred');
-      }
-    } finally {
+
+    } catch (scrapeError) {
+      console.error('Scraping error:', scrapeError);
+      const errorMsg = scrapeError.response?.data?.error || scrapeError.message || 'An unknown error occurred.';
+      setError(errorMsg);
       setLoading(false);
     }
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleAnalyze(e);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 animate-fade-in">
-      {/* Animated Background Elements */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500/10 rounded-full animate-pulse"></div>
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-pink-500/10 rounded-full animate-pulse" style={{animationDelay: '2s'}}></div>
-        <div className="absolute top-1/2 left-1/4 w-64 h-64 bg-blue-500/5 rounded-full animate-bounce" style={{animationDelay: '1s'}}></div>
-      </div>
+    <div className="min-h-screen bg-gray-900 text-white p-6 selection:bg-purple-500/30">
+      <style>
+        {`
+          .card-base {
+            background: linear-gradient(145deg, rgba(31, 28, 44, 0.7), rgba(26, 23, 37, 0.7));
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+          }
+          .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: white;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          }
+          /* Custom scrollbar for video list */
+          .overflow-y-auto::-webkit-scrollbar {
+            width: 6px;
+          }
+          .overflow-y-auto::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+          }
+          .overflow-y-auto::-webkit-scrollbar-thumb {
+            background: #a855f7; /* purple-500 */
+            border-radius: 10px;
+          }
+          .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+            background: #9333ea; /* purple-600 */
+          }
+        `}
+      </style>
+      
+      <Header />
+      
+      <main className="mt-8">
+        <SearchForm
+          url={url}
+          setUrl={setUrl}
+          handleSubmit={handleSubmit}
+          loading={loading}
+        />
 
-      {/* Header */}
-      <div className="container mx-auto px-4 py-8 relative z-10">
-        <div className="text-center mb-12 animate-fade-in-up">
-          <div className="flex items-center justify-center mb-4">
-            <Youtube className="w-12 h-12 text-red-500 mr-3 animate-bounce" />
-            <h1 className="text-5xl font-bold text-white bg-gradient-to-r from-white via-purple-200 to-pink-200 bg-clip-text text-transparent animate-gradient">
-              YouTube Channel Analyzer
-            </h1>
-          </div>
-          <p className="text-gray-300 text-lg animate-fade-in-up" style={{animationDelay: '0.2s'}}>
-            AI-powered content strategy recommendations using Llama-3.1
-          </p>
+        <div className="mt-8">
+          {error && <ErrorDisplay error={error} />}
+          
+          {loading && <LoadingSpinner text="Scraping YouTube channel..." />}
+          
+          {result && (
+            <ResultsDisplay 
+              result={result} 
+              aiLoading={aiLoading} 
+            />
+          )}
         </div>
-
-        {/* Input Section */}
-        <div className="max-w-3xl mx-auto mb-12 animate-fade-in-up" style={{animationDelay: '0.4s'}}>
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 relative overflow-hidden group hover:shadow-3xl transition-all duration-500">
-            {/* Input Background Glow */}
-            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 via-pink-500/5 to-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-
-            <form onSubmit={handleAnalyze} className="relative z-10">
-              <label className="block text-white text-sm font-semibold mb-3 group-hover:text-purple-200 transition-colors duration-300">
-                Enter YouTube Channel URL
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="https://youtube.com/@channelname"
-                  className="flex-1 px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300 hover:bg-white/25"
-                  disabled={loading}
-                />
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-5 h-5" />
-                      Analyze
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-
-            {error && (
-              <div className="mt-4 p-4 bg-red-500/20 border border-red-500/50 rounded-lg flex items-start gap-3 animate-shake">
-                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                <p className="text-red-200">{error}</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Results Section */}
-        {result && (
-          <div className="max-w-6xl mx-auto space-y-6">
-            {/* Channel Info */}
-            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="p-3 bg-gradient-to-br from-red-500 to-pink-500 rounded-xl">
-                  <Youtube className="w-8 h-8 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-3xl font-bold text-white">
-                    {result.channel.name}
-                  </h2>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Users className="w-4 h-4 text-gray-400" />
-                    <p className="text-gray-300">{result.channel.subscribers}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Videos Grid */}
-            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 animate-fade-in-up" style={{animationDelay: '0.6s'}}>
-              <div className="flex items-center gap-3 mb-6">
-                <TrendingUp className="w-6 h-6 text-purple-400 animate-pulse" />
-                <h3 className="text-2xl font-bold text-white">Recent Videos</h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {result.videos.map((video, index) => (
-                  <div
-                    key={index}
-                    className="bg-white/5 rounded-xl p-4 border border-white/10 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:shadow-xl group animate-fade-in-up"
-                    style={{animationDelay: `${0.8 + index * 0.1}s`}}
-                  >
-                    <div className="aspect-video mb-4 rounded-lg overflow-hidden bg-white/10 relative">
-                      <img
-                        src={video.thumbnail}
-                        alt={video.title}
-                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                        onError={(e) => {
-                          e.target.src = 'https://via.placeholder.com/320x180?text=No+Thumbnail';
-                        }}
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    </div>
-                    <h4 className="font-semibold text-white mb-2 line-clamp-2 leading-tight group-hover:text-purple-200 transition-colors duration-300">
-                      {video.title}
-                    </h4>
-                    <div className="flex items-center justify-between text-gray-400 text-sm">
-                      <div className="flex items-center gap-1">
-                        <Eye className="w-4 h-4" />
-                        <span>{video.views} views</span>
-                      </div>
-                      <span className="text-xs bg-purple-500/20 px-2 py-1 rounded-full group-hover:bg-purple-500/30 transition-colors duration-300">
-                        #{index + 1}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* AI Suggestions */}
-            <div className="space-y-6">
-              <div className="text-center mb-8">
-                <h3 className="text-3xl font-bold text-white mb-2">
-                  AI-Powered Content Strategy
-                </h3>
-                <p className="text-gray-300">
-                  Personalized recommendations for optimal growth
-                </p>
-              </div>
-
-              {parseSuggestions(result.suggestions).length > 0 ? (
-                parseSuggestions(result.suggestions).map((category, index) => {
-                  const IconComponent = category.icon;
-                  return (
-                    <div
-                      key={index}
-                      className={`bg-gradient-to-br ${category.color} backdrop-blur-lg rounded-2xl p-8 shadow-2xl border ${category.borderColor} relative overflow-hidden transform transition-all duration-500 hover:scale-[1.02] hover:shadow-3xl`}
-                      style={{
-                        animation: `fadeInUp 0.6s ease-out ${index * 0.1}s both`
-                      }}
-                    >
-                      {/* Animated Background Elements */}
-                      <div className="absolute inset-0 opacity-5">
-                        <div className="absolute top-4 right-4 w-32 h-32 rounded-full bg-white/20 animate-pulse"></div>
-                        <div className="absolute bottom-4 left-4 w-24 h-24 rounded-full bg-white/10 animate-pulse" style={{animationDelay: '1s'}}></div>
-                        <div className="absolute top-1/2 left-8 w-16 h-16 rounded-full bg-white/5 animate-bounce" style={{animationDelay: '0.5s'}}></div>
-                      </div>
-
-                      {/* Shimmer Effect */}
-                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -skew-x-12 animate-shimmer opacity-0 hover:opacity-100 transition-opacity duration-1000"></div>
-
-                      <div className="relative z-10">
-                        <div className="flex items-center gap-4 mb-6">
-                          <div className={`p-4 bg-white/20 rounded-2xl shadow-lg transform transition-transform duration-300 hover:scale-110 hover:rotate-3`}>
-                            <IconComponent className={`w-10 h-10 ${category.iconColor} drop-shadow-lg`} />
-                          </div>
-                          <div>
-                            <h4 className="text-3xl font-bold text-white mb-1 bg-gradient-to-r from-white to-gray-200 bg-clip-text text-transparent">
-                              {category.title}
-                            </h4>
-                            <p className="text-gray-200 text-sm font-medium">
-                              Strategic insights for optimization
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-4">
-                          {category.content.map((point, pointIndex) => (
-                            <div
-                              key={pointIndex}
-                              className="bg-white/10 rounded-xl p-5 border border-white/20 hover:bg-white/15 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group"
-                              style={{
-                                animation: `slideInLeft 0.4s ease-out ${index * 0.1 + pointIndex * 0.1}s both`
-                              }}
-                            >
-                              <div className="flex items-start gap-4">
-                                <div className={`w-3 h-3 rounded-full ${category.iconColor.replace('text-', 'bg-')} mt-2 flex-shrink-0 shadow-sm group-hover:scale-125 transition-transform duration-300`} />
-                                <div className="flex-1">
-                                  <p className="text-gray-100 leading-relaxed text-base group-hover:text-white transition-colors duration-300">
-                                    <span className="font-semibold text-white">{point.split(':')[0]}</span>
-                                    {point.includes(':') ? ':' : ''}
-                                    <span className="text-gray-200 group-hover:text-gray-100 transition-colors duration-300">{point.split(':').slice(1).join(':')}</span>
-                                  </p>
-                                </div>
-                                <div className={`opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${category.iconColor}`}>
-                                  →
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                // Fallback: Display raw suggestions if parsing fails
-                <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-purple-500/30">
-                  <div className="flex items-center gap-3 mb-6">
-                    <Sparkles className="w-6 h-6 text-yellow-400" />
-                    <h3 className="text-2xl font-bold text-white">
-                      AI-Powered Content Strategy
-                    </h3>
-                  </div>
-                  <div className="bg-white/10 rounded-xl p-6 border border-white/20">
-                    <div className="text-gray-100 whitespace-pre-wrap leading-relaxed">
-                      {result.suggestions}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Loading State */}
-        {loading && (
-          <div className="max-w-4xl mx-auto">
-            <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-16 shadow-2xl border border-white/20 text-center relative overflow-hidden">
-              {/* Animated Background */}
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 via-pink-500/10 to-blue-500/10 animate-pulse"></div>
-
-              {/* Floating Elements */}
-              <div className="absolute top-8 left-8 w-4 h-4 bg-purple-400 rounded-full animate-bounce" style={{animationDelay: '0s'}}></div>
-              <div className="absolute top-12 right-12 w-3 h-3 bg-pink-400 rounded-full animate-bounce" style={{animationDelay: '0.5s'}}></div>
-              <div className="absolute bottom-8 left-12 w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '1s'}}></div>
-
-              <div className="relative z-10">
-                {/* Main Loading Animation */}
-                <div className="relative mb-8">
-                  <div className="w-24 h-24 mx-auto relative">
-                    {/* Outer Ring */}
-                    <div className="absolute inset-0 rounded-full border-4 border-purple-500/20"></div>
-                    <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-purple-500 animate-spin"></div>
-
-                    {/* Inner Ring */}
-                    <div className="absolute inset-2 rounded-full border-3 border-pink-500/20"></div>
-                    <div className="absolute inset-2 rounded-full border-3 border-transparent border-t-pink-500 animate-spin" style={{animationDirection: 'reverse', animationDuration: '1.5s'}}></div>
-
-                    {/* Center Icon */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Sparkles className="w-8 h-8 text-white animate-pulse" />
-                    </div>
-                  </div>
-                </div>
-
-                <h3 className="text-3xl font-bold text-white mb-3 animate-pulse">
-                  Analyzing Channel...
-                </h3>
-                <p className="text-gray-300 text-lg mb-6">
-                  AI is generating personalized content strategy recommendations
-                </p>
-
-                {/* Progress Steps */}
-                <div className="flex justify-center space-x-8 text-sm">
-                  <div className="flex items-center space-x-2 text-purple-300">
-                    <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
-                    <span>Scraping Data</span>
-                  </div>
-                  <div className="flex items-center space-x-2 text-pink-300">
-                    <div className="w-2 h-2 bg-pink-400 rounded-full animate-pulse" style={{animationDelay: '0.5s'}}></div>
-                    <span>AI Analysis</span>
-                  </div>
-                  <div className="flex items-center space-x-2 text-blue-300">
-                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" style={{animationDelay: '1s'}}></div>
-                    <span>Generating Report</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="container mx-auto px-4 py-8 mt-12">
-        <div className="text-center text-gray-400 text-sm">
-          <p>Powered by Llama-3.1 • Built with React, Node.js & Python</p>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }
