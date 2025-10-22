@@ -26,6 +26,7 @@ services:
       # Tells Node.js to connect to the 'ai_service' container
       - AI_SERVICE_URL=http://ai_service:5002
       - BACKEND_PORT=5001
+      - DOCKER=true
     depends_on:
       - ai_service
     # Add a healthcheck to wait for the AI service to be ready

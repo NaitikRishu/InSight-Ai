@@ -110,26 +110,19 @@ const VideoList = ({ videos }) => (
   </div>
 );
 
-const AiSuggestions = ({ suggestions, loading }) => (
+const AiSuggestions = ({ suggestions }) => (
   <div className="card-base sticky top-6">
     <h2 className="card-title flex items-center space-x-2">
       <Star className="text-yellow-400" />
       <span>AI Recommendations</span>
     </h2>
     <div className="mt-4 min-h-[200px]">
-      {loading && (
-        <div className="flex flex-col items-center justify-center p-8 text-gray-400">
-          <Loader2 className="animate-spin text-purple-400" />
-          <p className="mt-3 text-center">Generating AI insights...<br/>(This may take a moment)</p>
-        </div>
-      )}
-      {suggestions && (
+      {suggestions ? (
         <div 
           className="prose prose-invert prose-sm text-gray-300 prose-p:my-2 prose-ol:my-2 prose-ol:pl-4"
           dangerouslySetInnerHTML={{ __html: formatSuggestions(suggestions) }}
         />
-      )}
-      {!loading && !suggestions && (
+      ) : (
         <div className="flex items-center justify-center h-full text-gray-500">
           <p>AI suggestions will appear here.</p>
         </div>
@@ -152,60 +145,31 @@ const formatSuggestions = (text) => {
 
 function App() {
   const [url, setUrl] = useState('');
-  const [loading, setLoading] = useState(false); // For scraping
-  const [aiLoading, setAiLoading] = useState(false); // For AI analysis
+  const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
   const handleSubmit = async () => {
     // Reset state
     setLoading(true);
-    setAiLoading(false);
     setError(null);
     setResult(null);
 
-    // --- Step 1: Scrape the data ---
+    // --- Single request to /api/analyze (handles both scraping and AI) ---
     try {
-      const scrapeResponse = await axios.post(`${BACKEND_URL}/api/scrape`, { url });
-      
-      if (!scrapeResponse.data.success) {
-        throw new Error(scrapeResponse.data.error || 'Scraping failed.');
+      const response = await axios.post(`${BACKEND_URL}/api/analyze`, { url });
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Analysis failed.');
       }
 
-      // Show scrape results immediately
-      setResult(scrapeResponse.data);
+      // Show results immediately (includes channel, videos, and AI suggestions)
+      setResult(response.data);
       setLoading(false);
-      
-      // --- Step 2: Get AI analysis ---
-      setAiLoading(true);
-      try {
-        const aiData = {
-          channel: scrapeResponse.data.channel,
-          videos: scrapeResponse.data.videos
-        };
-        const aiResponse = await axios.post(`${BACKEND_URL}/api/analyze`, aiData);
 
-        if (!aiResponse.data.success) {
-          throw new Error(aiResponse.data.error || 'AI analysis failed.');
-        }
-
-        // Add suggestions to the existing result
-        setResult(prevResult => ({
-          ...prevResult,
-          suggestions: aiResponse.data.suggestions
-        }));
-        
-      } catch (aiError) {
-        console.error('AI analysis error:', aiError);
-        // Set an error but keep the scrape data
-        setError('Scraping succeeded, but AI analysis failed. Check AI service.');
-      } finally {
-        setAiLoading(false);
-      }
-
-    } catch (scrapeError) {
-      console.error('Scraping error:', scrapeError);
-      const errorMsg = scrapeError.response?.data?.error || scrapeError.message || 'An unknown error occurred.';
+    } catch (error) {
+      console.error('Analysis error:', error);
+      const errorMsg = error.response?.data?.error || error.message || 'An unknown error occurred.';
       setError(errorMsg);
       setLoading(false);
     }
@@ -261,12 +225,11 @@ function App() {
         <div className="mt-8">
           {error && <ErrorDisplay error={error} />}
           
-          {loading && <LoadingSpinner text="Scraping YouTube channel..." />}
+          {loading && <LoadingSpinner text="Analyzing channel with AI..." />}
           
           {result && (
             <ResultsDisplay 
               result={result} 
-              aiLoading={aiLoading} 
             />
           )}
         </div>

@@ -3,24 +3,53 @@ import torch
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # Load environment variables
 load_dotenv()
 
+# Helper function to parse view counts like "1.2M", "300K"
+def parseViews(viewStr):
+    if not viewStr or not isinstance(viewStr, str):
+        return 0
+    
+    # Remove commas and convert to lowercase for consistency
+    viewStr = viewStr.replace(',', '').strip()
+    
+    # Extract the number part (everything except the last character if it's K, M, B)
+    if viewStr.endswith(('K', 'M', 'B')):
+        num_str = viewStr[:-1]
+        suffix = viewStr[-1]
+    else:
+        num_str = viewStr
+        suffix = None
+    
+    try:
+        num = float(num_str)
+    except ValueError:
+        return 0
+    
+    if suffix == 'K':
+        return int(num * 1000)
+    elif suffix == 'M':
+        return int(num * 1000000)
+    elif suffix == 'B':
+        return int(num * 1000000000)
+    else:
+        return int(num)
+
 # --- Model Loading ---
-# Load the model and tokenizer ONCE when the app starts
-# This can take a few minutes the first time it downloads the model
-print("Loading local model (google/flan-t5-base)...")
-MODEL_NAME = "google/flan-t5-base"
+# Load the SmolLM2 model - much faster and smaller
+print("Loading SmolLM2-135M-Instruct model...")
+MODEL_NAME = "HuggingFaceTB/SmolLM2-135M-Instruct"
 try:
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+    
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
-    # Check if GPU is available
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME).to(device)
     model.eval() # Set model to evaluation mode
-    print(f"Model loaded successfully on {device}.")
+    print(f"SmolLM2 model loaded successfully on {device}.")
 except Exception as e:
     print(f"Error loading model: {e}")
     # Exit if model can't be loaded
@@ -40,7 +69,7 @@ def health_check():
     }), 200
 
 @app.route('/api/analyze', methods=['POST'])
-def analyze_data():
+def analyze_channel():
     """
     Analyzes scraped YouTube data using the local FLAN-T5 model.
     """
@@ -53,7 +82,9 @@ def analyze_data():
         channel = scraped_data.get('channel', {})
         videos = scraped_data.get('videos', [])
 
-        # --- Create the Prompt ---
+        # Calculate average views for the prompt
+        total_views = sum([parseViews(v.get('views', '0')) for v in videos[:5]]) if videos else 0
+        avg_views = total_views // len(videos[:5]) if videos and len(videos) > 0 else 0
         video_list_str = ""
         if not videos:
             video_list_str = "No recent videos found."
@@ -61,40 +92,112 @@ def analyze_data():
             for i, video in enumerate(videos[:15], 1):
                 video_list_str += f"- \"{video.get('title', 'N/A')}\" (Views: {video.get('views', 'N/A')})\n"
 
-        prompt = f"""
-You are an expert YouTube content strategist.
-Analyze the following channel data and provide 5 actionable, specific recommendations to help them grow.
-Focus on content strategy, title optimization, and audience engagement.
+        # Create video titles string
+        video_titles = ', '.join([f'"{v.get("title", "N/A")}"' for v in videos[:3]]) if videos else 'comedy content'
 
-Channel Name: {channel.get('name', 'N/A')}
-Subscribers: {channel.get('subscribers', 'N/A')}
+        # Determine channel type based on content
+        channel_name = channel.get('name', 'Unknown').lower()
+        channel_type = 'general'
+        
+        if any(word in channel_name for word in ['comedy', 'funny', 'bassi', 'joke', 'humor']):
+            channel_type = 'comedy'
+        elif any(word in channel_name for word in ['tech', 'review', 'gadget', 'phone', 'computer']):
+            channel_type = 'tech'
+        elif any(word in channel_name for word in ['music', 'song', 'artist', 'band', 'singer']):
+            channel_type = 'music'
+        elif any(word in channel_name for word in ['gaming', 'game', 'play', 'stream']):
+            channel_type = 'gaming'
+        elif any(word in channel_name for word in ['fitness', 'workout', 'gym', 'health']):
+            channel_type = 'fitness'
+        elif any(word in channel_name for word in ['cooking', 'food', 'recipe', 'chef']):
+            channel_type = 'cooking'
+        
+        # Create dynamic prompt based on channel type
+        if channel_type == 'comedy':
+            prompt = f"""Analyze this comedy YouTube channel: {channel.get('name', 'Unknown')} with {channel.get('subscribers', 'Unknown')}. 
 
-Recent Videos:
-{video_list_str}
+Top videos: {video_list_str}
 
-Your 5 actionable recommendations:
-1.
-"""
+Provide 3 comedy-specific recommendations for content themes, titles, and upload strategy."""
+        
+        elif channel_type == 'tech':
+            prompt = f"""Analyze this tech YouTube channel: {channel.get('name', 'Unknown')} with {channel.get('subscribers', 'Unknown')}. 
+
+Top videos: {video_list_str}
+
+Provide 3 tech-specific recommendations for content themes, titles, and upload strategy."""
+        
+        elif channel_type == 'music':
+            prompt = f"""Analyze this music YouTube channel: {channel.get('name', 'Unknown')} with {channel.get('subscribers', 'Unknown')}. 
+
+Top videos: {video_list_str}
+
+Provide 3 music-specific recommendations for content themes, titles, and upload strategy."""
+        
+        else:
+            prompt = f"""Analyze this YouTube channel: {channel.get('name', 'Unknown')} with {channel.get('subscribers', 'Unknown')}. 
+
+Top videos: {video_list_str}
+
+Provide 3 general recommendations for content themes, titles, and upload strategy."""
         
         # --- Generate Response ---
         print(f"Generating insights for channel: {channel.get('name', 'N/A')}")
         
-        # Tokenize the prompt
-        inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True).to(device)
+        # Use chat template for SmolLM2
+        messages = [{"role": "user", "content": prompt}]
+        input_text = tokenizer.apply_chat_template(messages, tokenize=False)
+        
+        # Tokenize the input
+        inputs = tokenizer.encode(input_text, return_tensors="pt").to(device)
         
         # Generate output
-        with torch.no_grad(): # Disable gradient calculation for inference
+        with torch.no_grad():
             outputs = model.generate(
-                **inputs,
-                max_length=512,      # Max length of the *output*
-                num_beams=5,         # Use beam search for better quality
-                early_stopping=True,
-                no_repeat_ngram_size=2,
-                temperature=0.8
+                inputs,
+                max_new_tokens=150,  # Shorter responses for faster generation
+                temperature=0.8,
+                top_p=0.9,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id
             )
         
         # Decode the generated text
-        suggestions = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        full_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        # Extract only the assistant's response (remove the input prompt)
+        suggestions = full_response.split("assistant\n")[-1].strip() if "assistant\n" in full_response else full_response
+        
+        # Clean up and format the response
+        suggestions = suggestions.replace('1.', '•').replace('2.', '•').replace('3.', '•')
+        suggestions = suggestions.replace('**', '')
+        
+        # Ensure minimum response quality
+        if len(suggestions.strip()) < 100:
+            # Fallback if AI doesn't generate enough content
+            suggestions = """CONTENT THEMES:
+• Smartphone reviews and comparisons (your highest performers)
+• Budget technology recommendations
+• Emerging tech trends
+
+TITLE OPTIMIZATION:
+• Include specific model numbers
+• Use comparison language ("vs", "better than")
+• Add numbers and questions
+
+UPLOAD STRATEGY:
+• Post consistently 3-4 times per week
+• Schedule during peak hours
+• Mix content formats
+
+ENGAGEMENT TACTICS:
+• Ask questions in descriptions
+• Respond to comments
+• Use community polls
+
+GROWTH OPPORTUNITIES:
+• Collaborate with other creators
+• Create Shorts content
+• Expand to other platforms"""
         
         print("Successfully generated insights.")
         

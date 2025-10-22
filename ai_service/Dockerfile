@@ -9,10 +9,6 @@ COPY requirements.txt ./
 # Install the dependencies globally (no venv)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# --- ADDED STEP: Show installed packages ---
-RUN pip freeze
-# -------------------------------------------
-
 # Copy the rest of the application code
 COPY . .
 
